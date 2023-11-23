@@ -28,11 +28,10 @@ if not os.path.exists(TMPDIR):
   os.makedirs(TMPDIR, exist_ok=True)
 
 def check_is_intel_llvm(path):
-  cmd = path + " -dM -E -x c /dev/null | grep '__INTEL_LLVM_COMPILER'"
+  cmd = f"{path} -dM -E -x c /dev/null | grep '__INTEL_LLVM_COMPILER'"
   check_result = subprocess.getoutput(cmd)
-  if len(check_result) > 0 and check_result.find('__INTEL_LLVM_COMPILER') > -1:
-    return True
-  return False
+  return (len(check_result) > 0
+          and check_result.find('__INTEL_LLVM_COMPILER') > -1)
 
 SYCL_PATH = os.path.join("%{sycl_compiler_root}", "bin/icx")
 
@@ -50,10 +49,7 @@ def system(cmd):
   """Invokes cmd with os.system()"""
   
   ret = os.system(cmd)
-  if os.WIFEXITED(ret):
-    return os.WEXITSTATUS(ret)
-  else:
-    return -os.WTERMSIG(ret)
+  return os.WEXITSTATUS(ret) if os.WIFEXITED(ret) else -os.WTERMSIG(ret)
 
 def call_compiler(argv, link = False, sycl = True, xetla = False):
   flags = argv

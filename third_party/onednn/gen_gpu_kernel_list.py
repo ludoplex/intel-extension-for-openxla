@@ -13,11 +13,8 @@ class Kernel(object):
     self.path_ = path
 
   def extern(self):
-    extern_prefix = "extern const char *"
-    extern_suffix = "_kernel;"
-    if not is_v2:
-      extern_suffix =  "_kernel[];"
-    return extern_prefix + self.extern_ + extern_suffix
+    extern_suffix = "_kernel[];" if not is_v2 else "_kernel;"
+    return f"extern const char *{self.extern_}{extern_suffix}"
 
   def entries(self):
     format_extern = lambda x: '        {{ "{}", {}_kernel }},'.format(
@@ -33,10 +30,7 @@ class Kernel(object):
     kernel_dir = os.path.dirname(self.path_)
     index = kernel_dir.rfind(sub)
     index += len(sub) + 1  # step to the last if possible
-    if index == len(kernel_dir):
-      return ""
-    else:
-      return kernel_dir[index:]
+    return "" if index == len(kernel_dir) else kernel_dir[index:]
 
   def _parse_extern(self, path):
     path = os.path.basename(path)
@@ -47,8 +41,7 @@ class Kernel(object):
     with open(path) as f:
       content = f.read()
       pattern = 'kernel[ \n]+void[ \n]+([a-z0-9_]+)'
-      kernels = re.findall(pattern, content, re.DOTALL)
-      return kernels
+      return re.findall(pattern, content, re.DOTALL)
 
   def _extend_includes(self, inc_dirs, path):
     ret = []
@@ -70,12 +63,12 @@ class Kernel(object):
           if is_v2:
             line = line.strip()
             line = line.replace("\n", "")
-            quoted_line = 'R"==({})==""\\n"'.format(line)
+            quoted_line = f'R"==({line})==""\\n"'
           else:
             line = line.replace('\\', '\\\\')
             line = line.replace('"', '\\"')
             line = line.replace("\n", "\\n")
-            quoted_line = '"{}",'.format(line)
+            quoted_line = f'"{line}",'
           ret.append(quoted_line)
 
     return ret
@@ -87,12 +80,11 @@ class Header(Kernel):
     self.path_ = path
 
   def extern(self):
-    extern_prefix = "extern const char *"
     extern_suffix = "_header;"
-    return extern_prefix + self.extern_ + extern_suffix
+    return f"extern const char *{self.extern_}{extern_suffix}"
 
   def values(self):
-    format_entry = lambda x: '        {}_header,'.format(x)
+    format_entry = lambda x: f'        {x}_header,'
     return [format_entry(self.extern_)]
 
   def entries(self):
@@ -107,7 +99,7 @@ class Header(Kernel):
     dir_path = os.path.dirname(self.path_)
     src_index = dir_path.rfind("src")
     header_path = self.path_[src_index + len("src") : ]
-    return '        "{}",'.format(header_path)
+    return f'        "{header_path}",'
 
 class KernelList(object):
   def __init__(self, folder, header_dir):
@@ -115,13 +107,10 @@ class KernelList(object):
     self.headers_ = []
 
     cl_files = self._get_cl_suffix_files(folder)
-    for clf in cl_files:
-      self.kernels_.append(Kernel(clf))
-
+    self.kernels_.extend(Kernel(clf) for clf in cl_files)
     if is_v2:
       header_files = self._get_header_files(header_dir)
-      for hf in header_files:
-        self.headers_.append(Header(hf))
+      self.headers_.extend(Header(hf) for hf in header_files)
 
   def generate_list(self, src, target):
     externs = []
@@ -167,7 +156,7 @@ class KernelList(object):
     impl_name, content = impl.content(inc_dirs)
     more_sub = impl.subfolder(sub)
     # construct the file xxx_suffix.cpp
-    file_name = impl_name + "_" + suffix + ".cpp"
+    file_name = f"{impl_name}_{suffix}.cpp"
 
     target = os.path.join(root, sub, more_sub)
 
@@ -299,7 +288,7 @@ def parse_args(argv):
 
 def enable_v2(in_file):
   with open(in_file, "r") as f:
-    for line in f.readlines():
+    for line in f:
       if "KER_HEADERS" in line:
         global is_v2
         is_v2 = True
@@ -312,10 +301,7 @@ def main():
   # The --out argument is the output folder
   files_helper = FilesHelper(args["--in"], args["--out"])
 
-  only_gen_header=False
-  if args["--header"].lower() == "true":
-    only_gen_header=True
-
+  only_gen_header = args["--header"].lower() == "true"
   enable_v2(files_helper.gen_kernel_list_cpp_in)
 
   kernel_list = KernelList(files_helper.ocl_impls_dir, files_helper.header_dir)

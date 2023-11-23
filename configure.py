@@ -51,10 +51,7 @@ _ITEX_CURRENT_BAZEL_VERSION = None
 _DENY_PATH_LIST = ['..', ';', '|', '$', "'", '%', '*', '&', ':', '?', '<', '>', 'http', 'ftp'] # pylint: disable=line-too-long
 
 def path_filter(path):
-  for p in _DENY_PATH_LIST:
-    if p in path:
-      return False
-  return True
+  return all(p not in path for p in _DENY_PATH_LIST)
 
 class UserInputError(Exception):
   pass
@@ -90,11 +87,10 @@ def symlink_force(target, link_name):
   try:
     os.symlink(target, link_name)
   except OSError as e:
-    if e.errno == errno.EEXIST:
-      os.remove(link_name)
-      os.symlink(target, link_name)
-    else:
+    if e.errno != errno.EEXIST:
       raise e
+    os.remove(link_name)
+    os.symlink(target, link_name)
 
 
 def sed_in_place(filename, old, new):
@@ -127,7 +123,7 @@ def write_to_bazelrc(line):
 
 
 def write_action_env_to_bazelrc(var_name, var):
-  write_to_bazelrc('build --action_env %s="%s"' % (var_name, str(var)))
+  write_to_bazelrc(f'build --action_env {var_name}="{str(var)}"')
 
 
 def run_shell(cmd, allow_non_zero=False):
@@ -227,11 +223,7 @@ def get_python_path(environ_cp, python_bin_path):
 
   all_paths = set(python_paths + library_paths + user_paths)
 
-  paths = []
-  for path in all_paths:
-    if os.path.isdir(path):
-      paths.append(path)
-  return paths
+  return [path for path in all_paths if os.path.isdir(path)]
 
 
 def get_python_major_version(python_bin_path):
@@ -270,14 +262,13 @@ def setup_python(environ_cp):
     python_lib_paths = get_python_path(environ_cp, checked_python_bin_path)
     if environ_cp.get('USE_DEFAULT_PYTHON_LIB_PATH') == '1':
       python_lib_path = python_lib_paths[0]
-      checked_python_lib_path = check_safe_python_lib_path(python_lib_path)
     else:
       print('Found possible Python library paths:')
       print(python_lib_paths)
       print('\n')
       default_python_lib_path = check_safe_python_lib_path(python_lib_paths[0])
       python_lib_path = default_python_lib_path
-      checked_python_lib_path = check_safe_python_lib_path(python_lib_path)
+    checked_python_lib_path = check_safe_python_lib_path(python_lib_path)
     environ_cp['PYTHON_LIB_PATH'] = checked_python_lib_path
 
   _ = get_python_major_version(checked_python_bin_path)
@@ -364,33 +355,23 @@ def get_var(environ_cp,
     yes_reply = ('%s support will be enabled for '
                  'Intel® Extension for OpenXLA*.') % query_item
   if not no_reply:
-    no_reply = 'No %s' % yes_reply
+    no_reply = f'No {yes_reply}'
 
   yes_reply += '\n'
   no_reply += '\n'
 
-  if enabled_by_default:
-    question += ' [Y/n]: '
-  else:
-    question += ' [y/N]: '
-
+  question += ' [Y/n]: ' if enabled_by_default else ' [y/N]: '
   var = get_var_from_name(environ_cp, var_name)
   while var is None:
     user_input_origin = get_input(question)
     user_input = user_input_origin.strip().lower()
-    if user_input == 'y':
+    if (user_input != 'y' and user_input != 'n' and not user_input
+        and enabled_by_default or user_input == 'y'):
       print(yes_reply)
       var = True
-    elif user_input == 'n':
+    elif user_input != 'n' and not user_input or user_input == 'n':
       print(no_reply)
       var = False
-    elif not user_input:
-      if enabled_by_default:
-        print(yes_reply)
-        var = True
-      else:
-        print(no_reply)
-        var = False
     else:
       print('Invalid selection! Please input Y(y) or N(n).')
   return var
@@ -420,14 +401,12 @@ def set_build_var(environ_cp,
   var = str(int(get_var(environ_cp, var_name, query_item, enabled_by_default)))
   environ_cp[var_name] = var
   if var == '1':
-    write_to_bazelrc('build:%s --define %s=true' %
-                     (bazel_config_name, option_name))
-    write_to_bazelrc('build --config=%s' % bazel_config_name)
+    write_to_bazelrc(f'build:{bazel_config_name} --define {option_name}=true')
+    write_to_bazelrc(f'build --config={bazel_config_name}')
   elif bazel_config_name is not None:
     # TODO(mikecase): Migrate all users of configure.py to use --config Bazel
     # options and not to set build configs through environment variables.
-    write_to_bazelrc('build:%s --define %s=true' %
-                     (bazel_config_name, option_name))
+    write_to_bazelrc(f'build:{bazel_config_name} --define {option_name}=true')
 
 
 def set_action_env_var(environ_cp,
@@ -511,10 +490,10 @@ def check_bazel_version(min_version):
   # Check if current bazel version can be detected properly.
   if not curr_version_int:
     print('WARNING: current bazel installation is not a release version.')
-    print('Make sure you are running at least bazel %s' % min_version)
+    print(f'Make sure you are running at least bazel {min_version}')
     return curr_version
 
-  print('You have bazel %s installed.' % curr_version)
+  print(f'You have bazel {curr_version} installed.')
 
   if curr_version_int < min_version_int:
     print('Please upgrade your bazel installation to version %s or higher to '
@@ -533,7 +512,7 @@ def set_cc_opt_flags():
   """
   default_cc_opt_flags = '-march=native -Wno-sign-compare'
   for opt in default_cc_opt_flags.split():
-    write_to_bazelrc('build:opt --copt=%s' % opt)
+    write_to_bazelrc(f'build:opt --copt={opt}')
   # It should be safe on the same build host.
   write_to_bazelrc('build:opt --host_copt=-march=native')
   write_to_bazelrc('build:opt --define with_default_optimizations=true')
@@ -604,10 +583,7 @@ def prompt_loop_or_load_from_env(environ_cp,
       looping.
   """
   default = environ_cp.get(var_name) or var_default
-  full_query = '%s [Default is %s]: ' % (
-      ask_for_var,
-      default,
-  )
+  full_query = f'{ask_for_var} [Default is {default}]: '
 
   for _ in range(n_ask_attempts):
     val = get_from_env_or_user_or_default(environ_cp, var_name, full_query,
@@ -659,8 +635,7 @@ def set_sycl_toolkit_path(environ_cp):
     sycl_rt_lib_path_full = os.path.join(toolkit_path, sycl_rt_lib_path)
     exists = os.path.exists(sycl_rt_lib_path_full)
     if not exists:
-      print('Invalid DPC++ library path. %s cannot be found' %
-            (sycl_rt_lib_path_full))
+      print(f'Invalid DPC++ library path. {sycl_rt_lib_path_full} cannot be found')
     return exists
 
   sycl_toolkit_path = prompt_loop_or_load_from_env(
@@ -675,19 +650,17 @@ def set_sycl_toolkit_path(environ_cp):
 
   write_action_env_to_bazelrc('SYCL_TOOLKIT_PATH',
                               sycl_toolkit_path)
-  lib_path = '%s/lib:%s/compiler/lib/intel64_lin' %(
-      sycl_toolkit_path,
-      sycl_toolkit_path,
-  )
+  lib_path = (
+      f'{sycl_toolkit_path}/lib:{sycl_toolkit_path}/compiler/lib/intel64_lin')
 
   ld_lib_path = lib_path
   ld_library_path = os.getenv('LD_LIBRARY_PATH')
   if ld_library_path is not None and len(ld_library_path) > 0:
-    ld_lib_path += ':' + ld_library_path
+    ld_lib_path += f':{ld_library_path}'
 
   library_path = os.getenv('LIBRARY_PATH')
   if library_path is not None and len(library_path) > 0:
-    lib_path += ':' + library_path
+    lib_path += f':{library_path}'
 
   write_action_env_to_bazelrc('LD_LIBRARY_PATH',
                               ld_lib_path)
@@ -713,8 +686,7 @@ def system_specific_test_config(env):
 
 def set_system_libs_flag(environ_cp):
   """Set system libraries flag into bazelrc file."""
-  syslibs = environ_cp.get('TF_SYSTEM_LIBS', '')
-  if syslibs:
+  if syslibs := environ_cp.get('TF_SYSTEM_LIBS', ''):
     if ',' in syslibs:
       syslibs = ','.join(sorted(syslibs.split(',')))
     else:
@@ -722,11 +694,11 @@ def set_system_libs_flag(environ_cp):
     write_action_env_to_bazelrc('TF_SYSTEM_LIBS', syslibs)
 
   if 'PREFIX' in environ_cp:
-    write_to_bazelrc('build --define=PREFIX=%s' % environ_cp['PREFIX'])
+    write_to_bazelrc(f"build --define=PREFIX={environ_cp['PREFIX']}")
   if 'LIBDIR' in environ_cp:
-    write_to_bazelrc('build --define=LIBDIR=%s' % environ_cp['LIBDIR'])
+    write_to_bazelrc(f"build --define=LIBDIR={environ_cp['LIBDIR']}")
   if 'INCLUDEDIR' in environ_cp:
-    write_to_bazelrc('build --define=INCLUDEDIR=%s' % environ_cp['INCLUDEDIR'])
+    write_to_bazelrc(f"build --define=INCLUDEDIR={environ_cp['INCLUDEDIR']}")
 
 
 def config_info_line(name, help_text):
