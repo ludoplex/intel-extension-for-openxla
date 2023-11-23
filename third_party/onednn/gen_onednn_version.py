@@ -16,7 +16,7 @@ def parse_args(argv):
 def parse_version(cmake):
   pattern = re.compile('set\\(PROJECT_VERSION "([0-9]+\\.[0-9]+\\.[0-9]+)"\\)')
   with open(os.path.expanduser(cmake)) as f:
-    for line in f.readlines():
+    for line in f:
       result = pattern.match(line)
       if result is not None:
         return result.group(1)
@@ -31,8 +31,7 @@ def get_root(header_in):
     uld handle the include/**/itex/***/onednn/include/**.
     """
   pos = header_in.rindex("include")
-  root = header_in[:pos]
-  return root
+  return header_in[:pos]
 
 
 def git_hash(header_in):
@@ -46,8 +45,7 @@ def git_hash(header_in):
 
 def get_cmake(header_in):
   root = get_root(header_in)
-  cmake = os.path.join(root, "CMakeLists.txt")
-  return cmake
+  return os.path.join(root, "CMakeLists.txt")
 
 
 def generate_version(version, header_in, header_out):

@@ -60,14 +60,13 @@ def _get_composite_version_number(major, minor, patch):
 def _get_header_version(path, name):
   """Returns preprocessor defines in C header file."""
   for line in io.open(path, "r", encoding="utf-8"):
-    match = re.match(r"#define %s +(\d+)" % name, line)
-    if match:
+    if match := re.match(r"#define %s +(\d+)" % name, line):
       value = match.group(1)
       return int(value)
 
-  raise ConfigError('#define "{}" is either\n'.format(name) +
-                    "  not present in file {} OR\n".format(path) +
-                    "  its value is not an integer literal")
+  raise ConfigError(
+      ((f'#define "{name}" is either\n' + f"  not present in file {path} OR\n")
+       + "  its value is not an integer literal"))
 
 
 def _find_sycl_config(basekit_path):
@@ -108,12 +107,10 @@ def find_sycl_config():
   toolkit_path = _get_toolkit_path()
   if not os.path.exists(basekit_path):
     raise ConfigError(
-        'Specified SYCL_TOOLKIT_PATH "{}" does not exist'.format(basekit_path))
+        f'Specified SYCL_TOOLKIT_PATH "{basekit_path}" does not exist')
 
-  result = {}
+  result = {"sycl_basekit_path": basekit_path, "sycl_toolkit_path": toolkit_path}
 
-  result["sycl_basekit_path"] = basekit_path
-  result["sycl_toolkit_path"] = toolkit_path
   result.update(_find_sycl_config(basekit_path))
 
   return result
@@ -122,9 +119,9 @@ def find_sycl_config():
 def main():
   try:
     for key, value in sorted(find_sycl_config().items()):
-      print("%s: %s" % (key, value))
+      print(f"{key}: {value}")
   except ConfigError as e:
-    sys.stderr.write("\nERROR: {}\n\n".format(str(e)))
+    sys.stderr.write(f"\nERROR: {str(e)}\n\n")
     sys.exit(1)
 
 
